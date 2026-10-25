@@ -1,7 +1,7 @@
 {
   "Name": "Gus Always Visits Ginger Island",
   "Author": "Frosty",
-  "Version": "1.0.0",
+  "Version": "1.0.1",
   "Description": "Guarantees Gus is one of the Ginger Island resort visitors on every day the island visit happens.",
   "UniqueID": "Frosty.GusIslandVisitor",
   "EntryDll": "GusIslandVisitor.dll",

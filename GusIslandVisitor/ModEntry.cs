@@ -65,28 +65,41 @@ namespace GusIslandVisitor
                 if (gus == null || !IslandSouth.CanVisitIslandToday(gus))
                     return;
 
-                var keep = new HashSet<string>(visitors) { GusName };
-                string? victim = null;
+                var original = new HashSet<string>(visitors);
+                var pool = new HashSet<string>(original) { GusName };
+                var rng = Utility.CreateRandom(Game1.uniqueIDForThisGame * 1.7, Game1.stats.DaysPlayed * 3.1);
+                var removed = new List<string>();
 
-                if (visitors.Count >= 5)
+                // Never bump a player's spouse. Names are sorted so the result is deterministic per day.
+                bool CanBump(string name) => name != GusName && !Game1.getAllFarmers().Any(f => f.spouse == name);
+                bool BumpOne()
                 {
-                    // never bump a player's spouse; deterministic per day
-                    var candidates = visitors
-                        .Where(name => !Game1.getAllFarmers().Any(f => f.spouse == name))
-                        .OrderBy(name => name, StringComparer.Ordinal)
-                        .ToList();
+                    var candidates = pool.Where(CanBump).OrderBy(n => n, StringComparer.Ordinal).ToList();
                     if (candidates.Count == 0)
-                        return;
-                    var rng = Utility.CreateRandom(Game1.uniqueIDForThisGame * 1.7, Game1.stats.DaysPlayed * 3.1);
-                    victim = candidates[rng.Next(candidates.Count)];
-                    keep.Remove(victim);
+                        return false;
+                    string name = candidates[rng.Next(candidates.Count)];
+                    pool.Remove(name);
+                    removed.Add(name);
+                    return true;
                 }
 
-                Allowed = keep;
-                Rerunning = true;
+                // Vanilla targets 5 visitors; make room for Gus.
+                if (pool.Count > 5)
+                    BumpOne();
+
+                // Vanilla's random fill can pick fewer NPCs than the pool holds, and the roll is seeded per day so
+                // an identical re-run gives an identical result. If Gus is missed, shrink the pool and retry
+                // (a pool of 3 or fewer is always picked in full).
                 try
                 {
-                    IslandSouth.SetupIslandSchedules();
+                    Rerunning = true;
+                    while (true)
+                    {
+                        Allowed = pool;
+                        IslandSouth.SetupIslandSchedules();
+                        if (visitors.Contains(GusName) || !BumpOne())
+                            break;
+                    }
                 }
                 finally
                 {
@@ -94,21 +107,22 @@ namespace GusIslandVisitor
                     Rerunning = false;
                 }
 
-                if (victim != null && !visitors.Contains(victim))
+                // Return anyone who was dropped (or picked only during an earlier attempt) to their normal schedule.
+                foreach (string name in original.Where(n => n != GusName && !visitors.Contains(n)))
                 {
-                    NPC? bumped = Game1.getCharacterFromName(victim);
+                    NPC? bumped = Game1.getCharacterFromName(name);
                     if (bumped != null)
                     {
                         bumped.islandScheduleName.Value = null;
                         bumped.scheduleDelaySeconds = 0f;
-                        bumped.TryLoadSchedule(); // back to their normal schedule
+                        bumped.TryLoadSchedule();
                     }
                 }
 
                 if (!visitors.Contains(GusName))
                     Log.Log("Re-ran island selection but Gus was not picked; vanilla result may have changed.", LogLevel.Warn);
                 else
-                    Log.Log($"Gus is visiting the island today{(victim != null ? $" (replacing {victim})" : "")}.", LogLevel.Debug);
+                    Log.Log($"Gus is visiting the island today (replacing: {(removed.Count > 0 ? string.Join(", ", removed) : "nobody")}).", LogLevel.Debug);
             }
             catch (Exception ex)
             {
